@@ -49,7 +49,7 @@
 #include <string.h>
 #include <fcntl.h>
 #include <unistd.h>
-#include <wiringPi.h>
+#include <gpiod.h>
 #include <math.h>
 #include "sl_return.h"
 #include "sl_options.h"
@@ -57,6 +57,7 @@
 #include "sl_serial.h"
 #include "ublox.h"
 #include "cJSON.h"
+#include "gpio.h"
 
 typedef enum { fixQuery, versionQuery, configQuery, satelliteQuery } queryType;
 typedef enum { syncNone, syncASCII, syncNMEA, syncUBX } syncType;
@@ -816,15 +817,17 @@ static slReturn actionTeardown( const optionDef_slOptions* defs, const psloConfi
 
 
 // Test for the presence and quality of a 1 Hz signal on GPIO 18 (the PPS signal from the GPS), printing the result.
-#define PPS_PIN 1
 static slReturn actionTestPPS( const optionDef_slOptions* defs, const psloConfig* config ) {
 
-    wiringPiSetup();
-    pinMode( PPS_PIN, INPUT );
 
     struct timespec tenmicro = { 0, 10000 };
-
     struct timespec lastTime = { 0, 0 };
+    struct gpiod_chip *chip;
+    struct gpiod_line *pps_pin;
+
+    chip = gpiod_chip_open_by_name(GPIO_CHIP);
+    pps_pin = gpiod_chip_get_line(chip, PPS_PIN);
+    gpiod_line_request_input(pps_pin, GPSCTL);
 
     // measure for about 10 seconds...
     int lastState = 0;
@@ -834,7 +837,7 @@ static slReturn actionTestPPS( const optionDef_slOptions* defs, const psloConfig
         nanosleep( &tenmicro, NULL );
 
         // check our state...
-        int state = digitalRead( PPS_PIN );
+        int state = gpiod_line_get_value(pps_pin);
 
         // if the state has changed, time to measure and report...
         if(state != lastState ) {
@@ -861,6 +864,9 @@ static slReturn actionTestPPS( const optionDef_slOptions* defs, const psloConfig
             lastState = state;
         }
     }
+
+    gpiod_line_release(pps_pin);
+    gpiod_chip_close(chip);
 
     return makeOkReturn();
 }
